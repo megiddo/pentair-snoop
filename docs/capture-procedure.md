@@ -84,6 +84,36 @@ samples/captures/YYYYMMDDTHHMMSSZ_<label>/
 
 Stop with Ctrl-C (files are closed and `meta.json` finalized) or `--max-frames`.
 
+## Capability-guided session (SSH + wireless remote)
+
+For kickoff reverse engineering, prefer a **one-capability-at-a-time** walk so
+the haul-back corpus is labeled. Catalog + schema:
+[`capability-capture.md`](capability-capture.md). Interactive CLI
+(`capture-capabilities`) lands in A2.1; until then use this ops outline.
+
+1. SSH to the machine on the RS485/EW11 bus (other building). Keep the wireless
+   remote in hand; the CLI only listens and prompts.
+2. Start capability mode (listen-only — no `--send` / craft):
+
+   ```bash
+   pentairsnoop capture-capabilities --tcp -o samples/captures --label capability-guided
+   # or: --serial /dev/ttyUSB0
+   ```
+
+3. For each capability the tool prints a prompt and arms recording. Exercise the
+   remote as instructed, then type **`d`** (Done) or **`s`** (Skip). Optional
+   **`q`** quits the session early. Enter after the letter is OK.
+4. When finished, haul the session tree back to the dev box:
+
+   ```bash
+   tar czf ~/capability-guided-YYYYMMDD.tgz -C samples/captures YYYYMMDDTHHMMSSZ_capability-guided
+   # scp/rsync tarball → unpack under pentairsnoop/samples/captures/
+   ```
+
+IntelliChlor is **excluded** from the default 17-entry catalog. Fill session
+`NOTES.md` (and per-cap notes) with remote label quirks — especially filter/pool
+naming.
+
 ## Index
 
 Keep `samples/captures/README.md` updated when real sessions land. Until then the

@@ -7,7 +7,17 @@ from pathlib import Path
 import pytest
 
 import pentairsnoop
-from pentairsnoop import capture, compare, craft, framer, messages, registry, session, transport
+from pentairsnoop import (
+    capture,
+    catalog,
+    compare,
+    craft,
+    framer,
+    messages,
+    registry,
+    session,
+    transport,
+)
 from pentairsnoop.cli import build_parser, main
 from pentairsnoop.framer import Framer
 from pentairsnoop.messages import Message
@@ -116,7 +126,7 @@ def test_session_accepts_injected_deps() -> None:
 
 
 def test_module_pattern_docstrings() -> None:
-    for mod in (transport, framer, messages, registry, session, capture, craft, compare):
+    for mod in (transport, framer, messages, registry, session, capture, catalog, craft, compare):
         assert mod.__doc__ is not None
         assert "Pattern:" in mod.__doc__
 
