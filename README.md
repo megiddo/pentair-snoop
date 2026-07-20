@@ -80,12 +80,13 @@ Aligned with [03-software-design.md](../agents/plans/03-software-design.md):
 | Module | Pattern | Role |
 |--------|---------|------|
 | `cli` | Command | CLI entry / future subcommands |
-| `transport` | Strategy | Serial / TCP / hex-file I/O (stub) |
-| `framer` | Parser | Sync seek + frame extract (stub → A1) |
+| `transport` | Strategy | Serial / TCP / `HexFileTransport` (A1) |
+| `framer` | Parser | A5 + IntelliChlor sync seek, length extract, checksum (A1) |
 | `messages` | Command | Typed message DTOs (stub → A2) |
 | `registry` | Factory | cmd-byte → parser map (stub → A2) |
 | `session` | Facade | Thin session over transport + framer |
 
-## Out of scope for A0
+## A1 framing notes
 
-Framer/checksum, decode, live transports, capture, and write craft are Track A1+.
+- **Standard A5:** sync on `00 FF A5` / `FF 00 FF A5` (leading idle `FF` tolerated). Layout after A5: `PROTO DST SRC CMD LEN PAYLOAD CS_HI CS_LO`. Checksum is u16 BE = sum(A5..payload) mod 65536 (PHP `pentaircs`).
+- **IntelliChlor:** second framer for `10 02 … CS8 … 10 03` (not truncated A5 / not header-only `100250`).

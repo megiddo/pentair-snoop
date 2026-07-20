@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pentairsnoop.framer import Framer
+from pentairsnoop.framer import Frame, Framer
 from pentairsnoop.registry import MessageRegistry
 from pentairsnoop.transport import Transport
 
@@ -31,3 +31,24 @@ class Session:
     @property
     def registry(self) -> MessageRegistry:
         return self._registry
+
+    def read_frames(self, chunk_size: int = 256) -> list[Frame]:
+        """Read from the transport until EOF and return all framed messages.
+
+        Opens/closes the transport for this call (fixture-friendly). Live
+        persistent connections arrive in A3.
+        """
+        self._transport.open()
+        try:
+            self._framer.reset()
+            frames: list[Frame] = []
+            while True:
+                chunk = self._transport.read(chunk_size)
+                if not chunk:
+                    break
+                frames.extend(self._framer.feed(chunk))
+            # Flush any frame completed at EOF without extra bytes.
+            frames.extend(self._framer.feed(b""))
+            return frames
+        finally:
+            self._transport.close()

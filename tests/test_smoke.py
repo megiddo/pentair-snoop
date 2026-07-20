@@ -39,7 +39,7 @@ def test_build_parser_prog() -> None:
     assert build_parser().prog == "pentairsnoop"
 
 
-def test_framer_stub_feed() -> None:
+def test_framer_feed_incomplete_returns_empty() -> None:
     assert Framer().feed(b"\xff\x00") == []
 
 
