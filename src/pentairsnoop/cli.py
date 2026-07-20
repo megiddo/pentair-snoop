@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -14,6 +15,18 @@ from pentairsnoop.capture import (
     default_session_dirname,
     describe_source,
     iter_capture_frames,
+)
+from pentairsnoop.compare import diff_tx
+from pentairsnoop.craft import (
+    DEFAULT_WRITE_DST,
+    DEFAULT_WRITE_PROTOCOL,
+    DEFAULT_WRITE_SRC,
+    HEAT_POOL_MODE,
+    HEAT_SPA_MODE,
+    CircuitChange,
+    HeatChange,
+    pack_heat_mode,
+    parse_circuit_name,
 )
 from pentairsnoop.messages import Message
 from pentairsnoop.session import DecodedItem, QuarantinedFrame, Session
@@ -187,7 +200,140 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Stop after N framed messages (tests / bounded capture)",
     )
+
+    craft_c = sub.add_parser(
+        "craft-circuit",
+        help=(
+            "Emit CircuitChange (0x86) TX hex (dry-run by default). "
+            "Optional --send is gated and listens before/after write."
+        ),
+    )
+    craft_c.add_argument(
+        "circuit",
+        help="Circuit id: 0x06 / 6 / pool_light (local PHP names; unconfirmed)",
+    )
+    craft_c.add_argument(
+        "state",
+        choices=("on", "off", "1", "0"),
+        help="on/1 or off/0",
+    )
+    _add_craft_common(craft_c)
+
+    craft_h = sub.add_parser(
+        "craft-heat",
+        help=(
+            "Emit HeatChange (0x88) TX hex (dry-run by default). "
+            "Matches lib/index.php $set_temp shape when args match."
+        ),
+    )
+    craft_h.add_argument("--pool-set", type=int, required=True, metavar="F", help="Pool setpoint °F")
+    craft_h.add_argument("--spa-set", type=int, required=True, metavar="F", help="Spa setpoint °F")
+    mode_g = craft_h.add_mutually_exclusive_group()
+    mode_g.add_argument(
+        "--mode",
+        type=lambda s: int(s, 0),
+        default=None,
+        metavar="BYTE",
+        help="Raw mode byte (default: PHP OR 0x05 = pool+spa heater)",
+    )
+    mode_g.add_argument(
+        "--pack-modes",
+        action="store_true",
+        help="Pack --pool-mode/--spa-mode as (spa<<2)|pool (0–3 each)",
+    )
+    craft_h.add_argument(
+        "--pool-mode",
+        type=int,
+        default=1,
+        metavar="0-3",
+        help="With --pack-modes (default 1=heater)",
+    )
+    craft_h.add_argument(
+        "--spa-mode",
+        type=int,
+        default=1,
+        metavar="0-3",
+        help="With --pack-modes (default 1=heater)",
+    )
+    _add_craft_common(craft_h)
+
+    diff = sub.add_parser(
+        "diff-tx",
+        help="Diff crafted TX hex vs captured/reference TX (addrs, payload, CS)",
+    )
+    diff.add_argument("crafted", help="Crafted TX hex string")
+    diff.add_argument("reference", help="Reference / capture TX hex string")
+    diff.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON diff",
+    )
     return parser
+
+
+def _add_craft_common(p: argparse.ArgumentParser) -> None:
+    """Shared craft options: protocol/addrs, dry-run emit, gated --send."""
+    p.add_argument(
+        "--protocol",
+        type=lambda s: int(s, 0),
+        default=DEFAULT_WRITE_PROTOCOL,
+        metavar="BYTE",
+        help=f"Protocol byte (default {DEFAULT_WRITE_PROTOCOL:#x})",
+    )
+    p.add_argument(
+        "--dst",
+        type=lambda s: int(s, 0),
+        default=DEFAULT_WRITE_DST,
+        metavar="BYTE",
+        help=f"Destination (default {DEFAULT_WRITE_DST:#x})",
+    )
+    p.add_argument(
+        "--src",
+        type=lambda s: int(s, 0),
+        default=DEFAULT_WRITE_SRC,
+        metavar="BYTE",
+        help=f"Source (default {DEFAULT_WRITE_SRC:#x}; unconfirmed)",
+    )
+    p.add_argument(
+        "--diff",
+        metavar="REF_HEX",
+        default=None,
+        help="Also diff crafted TX against this reference hex",
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON (message + optional diff) instead of bare hex",
+    )
+    send = p.add_argument_group("optional live send (gated; default is dry-run)")
+    send.add_argument(
+        "--send",
+        action="store_true",
+        help=(
+            "Actually write TX bytes (OFF by default). Requires --tcp or --serial. "
+            "Listens before/after; do not use on live hardware unless safe/offline."
+        ),
+    )
+    send_src = send.add_mutually_exclusive_group()
+    send_src.add_argument(
+        "--tcp",
+        nargs="?",
+        const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
+        metavar="HOST:PORT",
+        help=f"TCP for --send (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT})",
+    )
+    send_src.add_argument(
+        "--serial",
+        metavar="PORT",
+        help="Serial device for --send",
+    )
+    send.add_argument(
+        "--listen-seconds",
+        type=float,
+        default=2.0,
+        metavar="SEC",
+        help="Listen window before and after --send (default 2.0)",
+    )
 
 
 def parse_command_filter(values: Sequence[str] | None) -> frozenset[int] | None:
@@ -372,6 +518,201 @@ def cmd_capture(
     return 0
 
 
+def _parse_on_off(state: str) -> bool:
+    return state.lower() in ("on", "1")
+
+
+def _resolve_heat_mode(args: argparse.Namespace) -> int:
+    if args.mode is not None:
+        return args.mode & 0xFF
+    if args.pack_modes:
+        return pack_heat_mode(pool_mode=args.pool_mode, spa_mode=args.spa_mode)
+    # Default: PHP OR-style dual heater (matches $set_temp mode 0x05).
+    return (HEAT_POOL_MODE | HEAT_SPA_MODE) & 0xFF
+
+
+def _emit_craft_result(
+    msg: CircuitChange | HeatChange,
+    *,
+    as_json: bool,
+    diff_ref: str | None,
+) -> int:
+    hex_s = msg.to_hex()
+    result: dict = {"hex": hex_s, "message": msg.to_dict()}
+    exit_code = 0
+    if diff_ref is not None:
+        d = diff_tx(hex_s, diff_ref)
+        result["diff"] = d.to_dict()
+        if not d.match:
+            exit_code = 2
+    if as_json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(hex_s)
+        if diff_ref is not None:
+            print(json.dumps(result["diff"], indent=2), file=sys.stderr)
+            if not result["diff"]["match"]:
+                print("# diff: MISMATCH", file=sys.stderr)
+            else:
+                print("# diff: MATCH", file=sys.stderr)
+    return exit_code
+
+
+def _listen_and_log(
+    session: Session,
+    *,
+    seconds: float,
+    label: str,
+    clock=time.monotonic,
+    sleep=time.sleep,
+) -> int:
+    """Read/decode for ``seconds``, printing NDJSON; return frame count.
+
+    Transport reads should time out (TCP/serial defaults) so this loop can exit.
+    """
+    if seconds <= 0:
+        return 0
+    deadline = clock() + seconds
+    count = 0
+    print(f"# listen ({label}) {seconds}s", file=sys.stderr)
+    while clock() < deadline:
+        chunk = session.transport.read(256)
+        if chunk:
+            for frame in session.framer.feed(chunk):
+                item = session.decode_frame(frame)
+                print(json.dumps(_item_dict(item), separators=(",", ":")), flush=True)
+                count += 1
+        else:
+            sleep(0.05)
+    for frame in session.framer.feed(b""):
+        item = session.decode_frame(frame)
+        print(json.dumps(_item_dict(item), separators=(",", ":")), flush=True)
+        count += 1
+    return count
+
+
+def cmd_send_with_listen(
+    tx: bytes,
+    *,
+    tcp: str | None,
+    serial: str | None,
+    listen_seconds: float,
+) -> int:
+    """Gated lab send: listen → write TX → listen. Prefer dry-run without --send."""
+    if tcp is None and serial is None:
+        print("error: --send requires --tcp or --serial", file=sys.stderr)
+        return 1
+    if serial is not None:
+        transport: TcpTransport | SerialTransport = SerialTransport(serial)
+    else:
+        assert tcp is not None
+        host, port = _parse_tcp_endpoint(tcp)
+        transport = TcpTransport(host, port)
+
+    session = Session(transport)
+    session.open()
+    try:
+        _listen_and_log(session, seconds=listen_seconds, label="pre-send")
+        print(f"# SEND {tx.hex()}", file=sys.stderr)
+        session.transport.write(tx)
+        _listen_and_log(session, seconds=listen_seconds, label="post-send")
+    except KeyboardInterrupt:
+        print("\n# send interrupted", file=sys.stderr)
+        return 0
+    finally:
+        session.close()
+    return 0
+
+
+def cmd_craft_circuit(
+    *,
+    circuit: str,
+    state: str,
+    protocol: int,
+    dst: int,
+    src: int,
+    diff: str | None,
+    as_json: bool,
+    send: bool,
+    tcp: str | None,
+    serial: str | None,
+    listen_seconds: float,
+) -> int:
+    """Build CircuitChange TX hex; optional gated --send with listen window."""
+    try:
+        cid = parse_circuit_name(circuit)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    msg = CircuitChange.build(
+        cid,
+        _parse_on_off(state),
+        protocol=protocol,
+        destination=dst,
+        source=src,
+    )
+    code = _emit_craft_result(msg, as_json=as_json, diff_ref=diff)
+    if send:
+        send_code = cmd_send_with_listen(
+            msg.raw,
+            tcp=tcp,
+            serial=serial,
+            listen_seconds=listen_seconds,
+        )
+        return send_code if send_code else code
+    return code
+
+
+def cmd_craft_heat(
+    *,
+    pool_set: int,
+    spa_set: int,
+    mode: int,
+    protocol: int,
+    dst: int,
+    src: int,
+    diff: str | None,
+    as_json: bool,
+    send: bool,
+    tcp: str | None,
+    serial: str | None,
+    listen_seconds: float,
+) -> int:
+    """Build HeatChange TX hex; optional gated --send with listen window."""
+    msg = HeatChange.build(
+        pool_set=pool_set,
+        spa_set=spa_set,
+        mode=mode,
+        protocol=protocol,
+        destination=dst,
+        source=src,
+    )
+    code = _emit_craft_result(msg, as_json=as_json, diff_ref=diff)
+    if send:
+        send_code = cmd_send_with_listen(
+            msg.raw,
+            tcp=tcp,
+            serial=serial,
+            listen_seconds=listen_seconds,
+        )
+        return send_code if send_code else code
+    return code
+
+
+def cmd_diff_tx(crafted: str, reference: str, *, pretty: bool) -> int:
+    """Exit 0 on match, 2 on deliberate/structural mismatch."""
+    try:
+        d = diff_tx(crafted, reference)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if pretty:
+        print(json.dumps(d.to_dict(), indent=2))
+    else:
+        print(json.dumps(d.to_dict(), separators=(",", ":")))
+    return 0 if d.match else 2
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse argv and run the selected command; return a process exit code."""
     parser = build_parser()
@@ -408,5 +749,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             session_dir=args.session_dir,
             max_frames=args.max_frames,
         )
+    if args.command == "craft-circuit":
+        return cmd_craft_circuit(
+            circuit=args.circuit,
+            state=args.state,
+            protocol=args.protocol,
+            dst=args.dst,
+            src=args.src,
+            diff=args.diff,
+            as_json=args.json,
+            send=args.send,
+            tcp=args.tcp,
+            serial=args.serial,
+            listen_seconds=args.listen_seconds,
+        )
+    if args.command == "craft-heat":
+        try:
+            mode = _resolve_heat_mode(args)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        return cmd_craft_heat(
+            pool_set=args.pool_set,
+            spa_set=args.spa_set,
+            mode=mode,
+            protocol=args.protocol,
+            dst=args.dst,
+            src=args.src,
+            diff=args.diff,
+            as_json=args.json,
+            send=args.send,
+            tcp=args.tcp,
+            serial=args.serial,
+            listen_seconds=args.listen_seconds,
+        )
+    if args.command == "diff-tx":
+        return cmd_diff_tx(args.crafted, args.reference, pretty=args.pretty)
     # No subcommand: A0-compatible no-op (help via --help).
     return 0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from pentairsnoop.craft import CircuitChange, HeatChange
 from pentairsnoop.messages import Message, SystemStatus, TempStatus, Unknown
 
 MessageParser = Callable[[bytes], Message]
@@ -50,10 +51,12 @@ class MessageRegistry:
 
     @classmethod
     def default(cls) -> MessageRegistry:
-        """Explicit registry: SystemStatus + TempStatus; other enum bytes → Unknown."""
+        """Explicit registry: status/temps + write crafts; other enum → Unknown."""
         reg = cls()
         reg.register(CMD_SYSTEM_STATUS, SystemStatus.parse)
         reg.register(CMD_INFO, TempStatus.parse)
+        reg.register(CMD_CIRCUIT_CHANGE_REQUEST, CircuitChange.parse)
+        reg.register(CMD_TEMP_CHANGE_REQUEST, HeatChange.parse)
         # Acknowledge remaining Commands enum bytes as Unknown (deterministic).
         for byte in (
             CMD_UNKNOWN,
@@ -61,8 +64,6 @@ class MessageRegistry:
             CMD_CLOCK_BROADCAST,
             CMD_PUMP_STATUS_REQUEST,
             CMD_REMOTE_LAYOUT_ACK,
-            CMD_CIRCUIT_CHANGE_REQUEST,
-            CMD_TEMP_CHANGE_REQUEST,
             CMD_REMOTE_LAYOUT_REQUEST,
         ):
             reg.register(byte, Unknown.parse)

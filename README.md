@@ -108,7 +108,31 @@ pentairsnoop capture --file ../samples/status_temps.hex \
 Each session directory contains `meta.json`, `raw.ndjson`, `frames.ndjson`, and
 `NOTES.md`.
 
-Later milestone: write craft (A5).
+### Craft + compare (A5)
+
+Write builders are a **clean reimplementation** (not broken PHP `HeatChange` /
+`CircuitChange::parse`). Default is **dry-run** (print TX hex). Findings stub:
+[`docs/05-protocol-from-captures.md`](docs/05-protocol-from-captures.md)
+(capture-compare ready; live panel TX corpus still pending).
+
+```bash
+# HeatChange matching lib/index.php $set_temp
+pentairsnoop craft-heat --pool-set 43 --spa-set 96 --mode 0x05
+pentairsnoop craft-heat --pool-set 43 --spa-set 96 --mode 0x05 \
+  --diff ff00ffa507102088042b60050001f8
+
+# CircuitChange (local PHP names; IDs unconfirmed on this panel)
+pentairsnoop craft-circuit pool_light on
+pentairsnoop craft-circuit 0x06 on --json
+
+# Side-by-side field diff (addrs, payload, checksum)
+pentairsnoop diff-tx \
+  ff00ffa507102088042b60050001f8 \
+  ff00ffa507102088042b60050001f8
+
+# Optional live send (gated; listen before/after) — lab only
+# pentairsnoop craft-heat --pool-set 43 --spa-set 96 --send --tcp --listen-seconds 2
+```
 
 ## Tests and coverage
 
@@ -138,10 +162,12 @@ Aligned with [03-software-design.md](../agents/plans/03-software-design.md):
 
 | Module | Pattern | Role |
 |--------|---------|------|
-| `cli` | Command | CLI: `decode-file`, `dump`, `watch`, `capture` |
+| `cli` | Command | CLI: `decode-file`, `dump`, `watch`, `capture`, `craft-*`, `diff-tx` |
 | `transport` | Strategy | `HexFileTransport`, `TcpTransport`, `SerialTransport` (+ reconnect) |
 | `framer` | Parser | A5 + IntelliChlor sync seek, length extract, checksum (A1) |
 | `messages` | Command | `SystemStatus`, `TempStatus`, `Unknown` DTOs + `to_json` |
+| `craft` | Command | `CircuitChange` / `HeatChange` builders (`to_hex` / parse) |
+| `compare` | Strategy | Crafted TX vs reference/capture field diff |
 | `registry` | Factory | Explicit cmd-byte → parser map (`MessageRegistry.default`) |
 | `session` | Facade | Frame + decode; quarantine; persistent `iter_messages` / `iter_frames` |
 | `capture` | Writer + Decorator | Timestamped `raw.ndjson` / `frames.ndjson`; `RecordingTransport` tee |
