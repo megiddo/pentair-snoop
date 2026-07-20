@@ -2,6 +2,8 @@
 
 Saved bus recordings live here. Copy sessions from the machine attached to the panel into this folder (or point `-o` here when capturing on a shared checkout).
 
+Live annotated captures are **pending** until you haul a real session home. Do **not** add fabricated “panel success” files here — use `--file` hex only for tool practice.
+
 ## Layout
 
 Each continuous or capability-guided session is a directory:
