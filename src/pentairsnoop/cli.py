@@ -16,6 +16,8 @@ from pentairsnoop.capture import (
     describe_source,
     iter_capture_frames,
 )
+from pentairsnoop.catalog import filter_catalog, load_catalog
+from pentairsnoop.capability_session import parse_id_list, run_capability_session
 from pentairsnoop.compare import diff_tx
 from pentairsnoop.craft import (
     DEFAULT_WRITE_DST,
@@ -199,6 +201,93 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="N",
         help="Stop after N framed messages (tests / bounded capture)",
+    )
+
+    cap_caps = sub.add_parser(
+        "capture-capabilities",
+        help=(
+            "Interactive capability-guided listen capture (catalog walk; d/s/q). "
+            "Listen-only — no --send / craft. See docs/capability-capture.md."
+        ),
+    )
+    cc_src = cap_caps.add_mutually_exclusive_group(required=True)
+    cc_src.add_argument(
+        "--tcp",
+        nargs="?",
+        const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
+        metavar="HOST:PORT",
+        help=(
+            f"TCP to EW11 (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT} "
+            "from settings.php)"
+        ),
+    )
+    cc_src.add_argument(
+        "--serial",
+        metavar="PORT",
+        help="USB-RS485 serial device (9600 8N1 starting defaults, unconfirmed)",
+    )
+    cc_src.add_argument(
+        "--file",
+        type=Path,
+        metavar="PATH",
+        help="Offline hex fixture (UX/format dry-run; EOF drains then waits on keys)",
+    )
+    cap_caps.add_argument(
+        "--out",
+        "-o",
+        type=Path,
+        default=Path("samples/captures"),
+        metavar="DIR",
+        help="Parent directory for session folders (default: samples/captures)",
+    )
+    cap_caps.add_argument(
+        "--label",
+        default="capability-guided",
+        help="Session label suffix (default: capability-guided)",
+    )
+    cap_caps.add_argument(
+        "--session-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Explicit session directory (skips auto YYYYMMDDTHHMMSSZ_label)",
+    )
+    cap_caps.add_argument(
+        "--only",
+        default=None,
+        metavar="ID,ID",
+        help="Run a subset of capability ids (catalog order preserved)",
+    )
+    cap_caps.add_argument(
+        "--skip-id",
+        default=None,
+        metavar="ID,ID",
+        help="Pre-mark these ids as skipped without prompting",
+    )
+    cap_caps.add_argument(
+        "--from-id",
+        default=None,
+        metavar="ID",
+        help="Start the walk at this capability id (resume-friendly)",
+    )
+    cap_caps.add_argument(
+        "--catalog",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Optional JSON catalog override (default: built-in DEFAULT_CATALOG)",
+    )
+    arm_group = cap_caps.add_mutually_exclusive_group()
+    arm_group.add_argument(
+        "--arm-on-prompt",
+        action="store_true",
+        default=True,
+        help="Arm recording as soon as the prompt is shown (default)",
+    )
+    arm_group.add_argument(
+        "--arm-on-key",
+        action="store_true",
+        help="Wait for 'a' before arming the capability window",
     )
 
     craft_c = sub.add_parser(
@@ -518,6 +607,69 @@ def cmd_capture(
     return 0
 
 
+def cmd_capture_capabilities(
+    *,
+    tcp: str | None,
+    serial: str | None,
+    file: Path | None,
+    out: Path,
+    label: str,
+    session_dir: Path | None,
+    only: str | None,
+    skip_id: str | None,
+    from_id: str | None,
+    catalog: Path | None,
+    arm_on_prompt: bool,
+    input_fn=None,
+) -> int:
+    """Interactive capability-guided listen capture (A2.1). Listen-only."""
+    if file is not None and not file.is_file():
+        print(f"error: file not found: {file}", file=sys.stderr)
+        return 1
+    try:
+        transport = build_watch_transport(tcp=tcp, serial=serial, file=file)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        entries = load_catalog(catalog)
+        only_ids = parse_id_list(only)
+        skip_ids = parse_id_list(skip_id) or []
+        # Walk selection: only / from-id. skip-id is handled by the session
+        # (pre-mark skipped without prompting) so those ids stay in the index.
+        walk = filter_catalog(entries, only=only_ids, from_id=from_id)
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if not walk:
+        print("error: no capabilities left after --only/--from-id filters", file=sys.stderr)
+        return 1
+
+    if session_dir is not None:
+        dest = session_dir
+    else:
+        dest = out / default_session_dirname(label)
+
+    source = describe_source(tcp=tcp, serial=serial, file=file)
+    try:
+        run_capability_session(
+            transport,
+            dest,
+            walk,
+            label=label,
+            source=source,
+            skip_ids=skip_ids,
+            arm_on_prompt=arm_on_prompt,
+            input_fn=input_fn,
+        )
+    except KeyboardInterrupt:
+        print("\n# capability session interrupted", file=sys.stderr)
+        return 0
+    return 0
+
+
 def _parse_on_off(state: str) -> bool:
     return state.lower() in ("on", "1")
 
@@ -748,6 +900,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             label=args.label,
             session_dir=args.session_dir,
             max_frames=args.max_frames,
+        )
+    if args.command == "capture-capabilities":
+        arm_on_prompt = not getattr(args, "arm_on_key", False)
+        return cmd_capture_capabilities(
+            tcp=args.tcp,
+            serial=args.serial,
+            file=args.file,
+            out=args.out,
+            label=args.label,
+            session_dir=args.session_dir,
+            only=args.only,
+            skip_id=args.skip_id,
+            from_id=args.from_id,
+            catalog=args.catalog,
+            arm_on_prompt=arm_on_prompt,
         )
     if args.command == "craft-circuit":
         return cmd_craft_circuit(

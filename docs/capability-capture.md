@@ -1,11 +1,12 @@
 # Capability-guided capture (schema freeze)
 
-**Status:** A2.0 catalog + schema freeze. Interactive `capture-capabilities`
-CLI lands in A2.1 — this document freezes the catalog, output layout, and CLI
-surface so the corpus format is reviewable **without** live gear.
+**Status:** A2.1 CLI implemented — ``pentairsnoop capture-capabilities`` walks the
+catalog interactively (listen-only; ``d``/``s``/``q``). A2.0 froze the catalog,
+hybrid layout C, and CLI surface below.
 
 **Plan:** parent `agents/plans/08-capability-capture-mode.md`  
 **Catalog code:** `pentairsnoop.catalog` (`DEFAULT_CATALOG`, 17 entries)  
+**Session code:** `pentairsnoop.capability_session` (state machine + hybrid writer)  
 **JSON snapshot:** `src/pentairsnoop/data/default_catalog.json`
 
 ## Catalog
@@ -110,9 +111,9 @@ When a capability window is armed, frame records add `capability_id`:
 {"t":"…Z","seq":12,"kind":"a5","checksum_ok":true,"raw":"…","capability_id":"spa_on_off"}
 ```
 
-## CLI surface (A2.1 — documented now)
+## CLI surface (A2.1)
 
-Working name: `capture-capabilities` (sibling of `capture`; not yet wired).
+Working name: `capture-capabilities` (sibling of `capture`).
 
 ```bash
 pentairsnoop capture-capabilities --tcp

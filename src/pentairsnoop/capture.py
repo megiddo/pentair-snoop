@@ -182,22 +182,41 @@ class CaptureWriter:
         self._byte_offset += len(data)
         self.meta.raw_chunks += 1
 
-    def write_frame(self, frame: Frame, *, ts: datetime | None = None) -> None:
-        """Append one framed message line."""
+    @property
+    def frame_seq(self) -> int:
+        """Next frame sequence number (0-based count of frames written so far)."""
+        return self._frame_seq
+
+    def write_frame(
+        self,
+        frame: Frame,
+        *,
+        ts: datetime | None = None,
+        capability_id: str | None = None,
+    ) -> dict:
+        """Append one framed message line; return the record written.
+
+        When ``capability_id`` is set (capability-guided armed window), it is
+        included on the NDJSON line. When ``None``, the field is omitted
+        (plain ``capture`` sessions stay unchanged).
+        """
         if not self._open or self._frames_fp is None:
             raise RuntimeError("CaptureWriter is not open")
         when = ts if ts is not None else self._clock()
-        rec = {
+        rec: dict = {
             "t": format_timestamp(when),
             "seq": self._frame_seq,
             "kind": frame.kind.value,
             "checksum_ok": frame.checksum_ok,
             "raw": frame.raw.hex(),
         }
+        if capability_id is not None:
+            rec["capability_id"] = capability_id
         self._frames_fp.write(json.dumps(rec, separators=(",", ":")) + "\n")
         self._frames_fp.flush()
         self._frame_seq += 1
         self.meta.frames += 1
+        return rec
 
 
 class RecordingTransport:

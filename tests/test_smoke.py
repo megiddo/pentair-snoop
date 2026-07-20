@@ -126,9 +126,27 @@ def test_session_accepts_injected_deps() -> None:
 
 
 def test_module_pattern_docstrings() -> None:
-    for mod in (transport, framer, messages, registry, session, capture, catalog, craft, compare):
+    from pentairsnoop import capability_session
+
+    for mod in (
+        transport,
+        framer,
+        messages,
+        registry,
+        session,
+        capture,
+        catalog,
+        craft,
+        compare,
+        capability_session,
+    ):
         assert mod.__doc__ is not None
         assert "Pattern:" in mod.__doc__
+
+
+def test_capture_capabilities_in_help() -> None:
+    help_text = build_parser().format_help()
+    assert "capture-capabilities" in help_text
 
 
 def test_samples_dir_fixture(samples_dir: Path) -> None:
