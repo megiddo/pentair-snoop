@@ -38,9 +38,10 @@ def test_cli_main_no_args() -> None:
 def test_build_parser_prog() -> None:
     parser = build_parser()
     assert parser.prog == "pentairsnoop"
-    # A2 subcommands present
-    assert "decode-file" in parser.format_help()
-    assert "dump" in parser.format_help()
+    help_text = parser.format_help()
+    assert "decode-file" in help_text
+    assert "dump" in help_text
+    assert "watch" in help_text
 
 
 def test_framer_feed_incomplete_returns_empty() -> None:

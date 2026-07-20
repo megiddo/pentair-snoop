@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from pentairsnoop.framer import Frame, FrameKind, Framer
@@ -44,6 +45,7 @@ class Session:
         self._registry = (
             registry if registry is not None else MessageRegistry.default()
         )
+        self._live_open = False
 
     @property
     def transport(self) -> Transport:
@@ -57,11 +59,25 @@ class Session:
     def registry(self) -> MessageRegistry:
         return self._registry
 
+    def open(self) -> None:
+        """Open the transport once for a persistent watch (A3)."""
+        if not self._live_open:
+            self._transport.open()
+            self._framer.reset()
+            self._live_open = True
+
+    def close(self) -> None:
+        """Close the transport after a persistent watch (idempotent)."""
+        if self._live_open:
+            self._transport.close()
+            self._live_open = False
+
     def read_frames(self, chunk_size: int = 256) -> list[Frame]:
         """Read from the transport until EOF and return all framed messages.
 
-        Opens/closes the transport for this call (fixture-friendly). Live
-        persistent connections arrive in A3.
+        Opens/closes once per call (fixture-friendly for ``HexFileTransport``).
+        Live watch must use :meth:`iter_frames` / :meth:`iter_messages` so the
+        connection stays open across frames (no open/close per frame).
         """
         self._transport.open()
         try:
@@ -72,11 +88,33 @@ class Session:
                 if not chunk:
                     break
                 frames.extend(self._framer.feed(chunk))
-            # Flush any frame completed at EOF without extra bytes.
             frames.extend(self._framer.feed(b""))
             return frames
         finally:
             self._transport.close()
+
+    def iter_frames(
+        self, chunk_size: int = 256, *, manage_lifecycle: bool = True
+    ) -> Iterator[Frame]:
+        """Yield frames from a persistent connection (no open/close per frame).
+
+        When ``manage_lifecycle`` is True (default), opens once before the first
+        read and closes when the iterator finishes or is closed. Pass
+        ``manage_lifecycle=False`` if the caller already called :meth:`open`.
+        """
+        if manage_lifecycle:
+            self.open()
+        try:
+            while True:
+                chunk = self._transport.read(chunk_size)
+                if not chunk:
+                    # Fixture EOF or transport closed — flush and stop.
+                    yield from self._framer.feed(b"")
+                    break
+                yield from self._framer.feed(chunk)
+        finally:
+            if manage_lifecycle:
+                self.close()
 
     def decode_frame(self, frame: Frame) -> DecodedItem:
         """Decode one frame; quarantine bad checksums; IntelliChlor → Unknown."""
@@ -89,3 +127,12 @@ class Session:
     def read_messages(self, chunk_size: int = 256) -> list[DecodedItem]:
         """Frame then decode; bad checksums become ``QuarantinedFrame``."""
         return [self.decode_frame(f) for f in self.read_frames(chunk_size)]
+
+    def iter_messages(
+        self, chunk_size: int = 256, *, manage_lifecycle: bool = True
+    ) -> Iterator[DecodedItem]:
+        """Yield decoded messages over a persistent transport connection."""
+        for frame in self.iter_frames(
+            chunk_size, manage_lifecycle=manage_lifecycle
+        ):
+            yield self.decode_frame(frame)

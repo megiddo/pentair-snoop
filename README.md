@@ -65,7 +65,30 @@ JSON shape follows PHP `Command::toJson` (camelCase fields, `raw` as hex). Unkno
 command bytes and IntelliChlor frames emit `type_name: Unknown` with `raw` hex.
 Bad-checksum frames are quarantined (omitted unless `--include-quarantine`).
 
-Later milestones: `watch`, `capture`, write craft.
+### Watch (A3)
+
+Persistent TCP or serial connection with exponential backoff + jitter reconnect.
+Session opens the transport **once** and streams frames (no open/close per frame).
+
+```bash
+# EW11 TCP (defaults from settings.php: 10.0.0.11:8899)
+pentairsnoop watch --tcp
+pentairsnoop watch --tcp 10.0.0.11:8899
+
+# USB-RS485 (9600 8N1 starting defaults — unconfirmed for all adapters)
+pentairsnoop watch --serial /dev/ttyUSB0
+
+# Offline fixture replay (EOF ends watch)
+pentairsnoop watch --file ../samples/status_temps.hex
+
+# Only SystemStatus (0x02) and TempStatus/Info (0x08)
+pentairsnoop watch --tcp --cmd 0x02 --cmd 0x08
+pentairsnoop watch --file ../samples/status_temps.hex --cmd 0x02,0x08 --pretty
+```
+
+Do not run live `--tcp` against EW11 while PHP or `pentairservice` also holds port 8899.
+
+Later milestones: `capture`, write craft.
 
 ## Tests and coverage
 
@@ -95,12 +118,12 @@ Aligned with [03-software-design.md](../agents/plans/03-software-design.md):
 
 | Module | Pattern | Role |
 |--------|---------|------|
-| `cli` | Command | CLI: `decode-file`, `dump` (+ later watch/capture) |
-| `transport` | Strategy | Serial / TCP / `HexFileTransport` (A1) |
+| `cli` | Command | CLI: `decode-file`, `dump`, `watch` (+ later capture) |
+| `transport` | Strategy | `HexFileTransport`, `TcpTransport`, `SerialTransport` (+ reconnect) |
 | `framer` | Parser | A5 + IntelliChlor sync seek, length extract, checksum (A1) |
 | `messages` | Command | `SystemStatus`, `TempStatus`, `Unknown` DTOs + `to_json` |
 | `registry` | Factory | Explicit cmd-byte → parser map (`MessageRegistry.default`) |
-| `session` | Facade | Frame + decode; quarantine bad checksum |
+| `session` | Facade | Frame + decode; quarantine; persistent `iter_messages` watch |
 
 ## A1 framing notes
 
