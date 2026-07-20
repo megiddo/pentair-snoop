@@ -1,0 +1,121 @@
+[
+  {
+    "id": "idle_baseline",
+    "group": "baseline",
+    "prompt": "Listen only for ~60–90s with **no** remote presses. Press **d** when ready to end the baseline window.",
+    "skip_ok": false,
+    "expected_traffic": "Periodic `0x02` status, `0x08` temps; optional `0x05` clock. Establishes quiet background."
+  },
+  {
+    "id": "spa_on_off",
+    "group": "circuit",
+    "prompt": "On the wireless remote: turn **spa ON**, wait ~5s, turn **spa OFF**. Press **d** when finished, or **s** to skip.",
+    "skip_ok": false,
+    "expected_traffic": "Remote→panel `0x86` (circuit≈`0x01`) + `0x01` ACK; status `0x02` bit changes."
+  },
+  {
+    "id": "spa_light_on_off",
+    "group": "circuit",
+    "prompt": "Turn **spa light ON**, wait ~5s, turn **spa light OFF**. [d=Done / s=Skip]",
+    "skip_ok": false,
+    "expected_traffic": "`0x86` (local SPA_LIGHT=`0x05`) + ACK; status bit `SPA_LIGHT` `0x08`."
+  },
+  {
+    "id": "pool_light_on_off",
+    "group": "circuit",
+    "prompt": "Turn **pool light ON**, wait ~5s, turn **pool light OFF**. [d=Done / s=Skip]",
+    "skip_ok": false,
+    "expected_traffic": "`0x86` (local POOL_LIGHT=`0x06`) + ACK; status bit `POOL_LIGHT` `0x10`."
+  },
+  {
+    "id": "water_feature_on_off",
+    "group": "circuit",
+    "prompt": "Turn **water feature / waterfall ON**, wait ~5s, turn **OFF**. Use whatever the remote labels this circuit. [d/s]",
+    "skip_ok": false,
+    "expected_traffic": "`0x86` (WATER_FEATURE=`0x04`); status bit `0x04`. API name: waterfall."
+  },
+  {
+    "id": "cleaner_on_off",
+    "group": "circuit",
+    "prompt": "Turn **cleaner ON**, wait ~5s, turn **cleaner OFF**. [d/s]",
+    "skip_ok": true,
+    "expected_traffic": "`0x86` (CLEANER=`0x03`); status `CLEANER_PUMP` `0x02`. Sample: `002_cleaner_on.hex`."
+  },
+  {
+    "id": "filter_pump_on_off",
+    "group": "circuit",
+    "prompt": "Turn **filter / pool pump ON**, wait ~5s, turn **OFF** (or the remote’s equivalent body/filter circuit). Note the **exact remote label** in NOTES if it differs. [d/s]",
+    "skip_ok": false,
+    "expected_traffic": "`0x86` — **ID contested** (local `POOL=0x02` vs external body `0x06`); status often `FILTER_PUMP` `0x20`. Highest-value circuit ID capture."
+  },
+  {
+    "id": "heat_boost_on_off",
+    "group": "circuit",
+    "prompt": "If the remote has **heat boost** (or spa boost): toggle ON then OFF. Otherwise **s**. [d/s]",
+    "skip_ok": true,
+    "expected_traffic": "`0x86` with HEAT_BOOST=`0x85` (unconfirmed on this panel)."
+  },
+  {
+    "id": "spa_temp_set",
+    "group": "heat",
+    "prompt": "Set the **spa temperature to 96°F**, wait until the display settles, then set it to **90°F**. [d/s]",
+    "skip_ok": false,
+    "expected_traffic": "`0x88` HeatChange (spa setpoint bytes) + ACK `0x01`/`0x88`; later `0x08` spa set field. Sample: `007_spa_temp_set_93.hex`."
+  },
+  {
+    "id": "pool_temp_set",
+    "group": "heat",
+    "prompt": "Set the **pool temperature to 85°F**, wait, then set it to **80°F** (or two distinct values the remote allows). [d/s]",
+    "skip_ok": false,
+    "expected_traffic": "`0x88` pool setpoint + ACK; `0x08` water/pool set. Sample: `006_pool_temp_set_85.hex`."
+  },
+  {
+    "id": "spa_heat_mode",
+    "group": "heat",
+    "prompt": "Change **spa heat mode** through available remote options (e.g. Off → Heater → Solar/HeatPump if present). Return to a known mode when done. [d/s]",
+    "skip_ok": true,
+    "expected_traffic": "Often packed into `0x88` mode byte; possible separate `0xA8` (njsPC) — **unknown** on this firmware. Watch `0x08` info/mode and `0x02` heater fields."
+  },
+  {
+    "id": "pool_heat_mode",
+    "group": "heat",
+    "prompt": "Change **pool heat mode** through available options; return to a known mode. [d/s]",
+    "skip_ok": true,
+    "expected_traffic": "Same as spa heat mode; mode nibble may share `0x88` payload."
+  },
+  {
+    "id": "spa_heat_enable",
+    "group": "heat",
+    "prompt": "If distinct from mode: turn **spa heat ON** then **OFF** (or enable/disable heater for spa). Else **s**. [d/s]",
+    "skip_ok": true,
+    "expected_traffic": "May look like `0x88` and/or circuit bits; sample `008_spa_heat_on.hex`."
+  },
+  {
+    "id": "filter_schedule",
+    "group": "schedule",
+    "prompt": "If the remote/panel UI can edit **filter pump calendar / schedule**, make one visible change (e.g. shift a start time by 15 minutes), then revert if easy. If no schedule UI, **s**. [d/s]",
+    "skip_ok": true,
+    "expected_traffic": "**Unknown** command set on classic EasyTouch RS485 (not in local enum). Capture whatever TX appears; mark NOTES with UI path used."
+  },
+  {
+    "id": "set_clock",
+    "group": "clock",
+    "prompt": "Set the panel **clock date and time** to a deliberate wrong time (e.g. +1 hour), wait ~10s, then set it back to approximately correct. [d/s]",
+    "skip_ok": true,
+    "expected_traffic": "May produce write(s) then `0x05` clock broadcast and/or time fields in `0x02`. Local `CLOCK_BROADCAST` parser unused — raw frames still valuable."
+  },
+  {
+    "id": "aux_or_unknown_circuit",
+    "group": "circuit",
+    "prompt": "If the remote has any **other** labeled circuit/feature not already exercised (AUX, blower, jet, etc.), toggle ON/OFF once and write the remote label into NOTES. Else **s**. [d/s]",
+    "skip_ok": true,
+    "expected_traffic": "Unknown `0x86` circuit id — do not assume enum."
+  },
+  {
+    "id": "idle_after",
+    "group": "baseline",
+    "prompt": "Final listen-only window (~30–60s), no presses. [d]",
+    "skip_ok": false,
+    "expected_traffic": "Confirms bus returns to steady status cadence after exercises."
+  }
+]
