@@ -36,7 +36,11 @@ def test_cli_main_no_args() -> None:
 
 
 def test_build_parser_prog() -> None:
-    assert build_parser().prog == "pentairsnoop"
+    parser = build_parser()
+    assert parser.prog == "pentairsnoop"
+    # A2 subcommands present
+    assert "decode-file" in parser.format_help()
+    assert "dump" in parser.format_help()
 
 
 def test_framer_feed_incomplete_returns_empty() -> None:
@@ -50,8 +54,11 @@ def test_message_defaults() -> None:
 
 
 def test_registry_unknown_and_registered() -> None:
+    from pentairsnoop.messages import Unknown
+
     reg = MessageRegistry()
     unknown = reg.parse(0x99, b"\x01\x02")
+    assert isinstance(unknown, Unknown)
     assert unknown.command == 0x99
     assert unknown.raw == b"\x01\x02"
 
@@ -62,6 +69,12 @@ def test_registry_unknown_and_registered() -> None:
     typed = reg.parse(0x02, b"abcd")
     assert typed.command == 0x02
     assert typed.length == 4
+
+
+def test_default_registry_has_status_parsers() -> None:
+    reg = MessageRegistry.default()
+    assert 0x02 in reg._parsers  # noqa: SLF001
+    assert 0x08 in reg._parsers  # noqa: SLF001
 
 
 class _DummyTransport:

@@ -49,7 +49,23 @@ pentairsnoop --help
 python -m pentairsnoop --help
 ```
 
-Subcommands (`decode-file`, `watch`, `capture`, …) arrive in later Track A milestones.
+### Decode fixtures (A2)
+
+```bash
+# NDJSON: one JSON object per message (typed fields + raw hex)
+pentairsnoop decode-file ../samples/status_temps.hex
+pentairsnoop decode-file ../samples/status_temps.hex --pretty
+
+# Pretty JSON array (use --compact for one line)
+pentairsnoop dump ../samples/status_temps.hex
+pentairsnoop dump ../samples/log_breakdown/001_baseline_filter_on.hex --include-quarantine
+```
+
+JSON shape follows PHP `Command::toJson` (camelCase fields, `raw` as hex). Unknown
+command bytes and IntelliChlor frames emit `type_name: Unknown` with `raw` hex.
+Bad-checksum frames are quarantined (omitted unless `--include-quarantine`).
+
+Later milestones: `watch`, `capture`, write craft.
 
 ## Tests and coverage
 
@@ -79,12 +95,12 @@ Aligned with [03-software-design.md](../agents/plans/03-software-design.md):
 
 | Module | Pattern | Role |
 |--------|---------|------|
-| `cli` | Command | CLI entry / future subcommands |
+| `cli` | Command | CLI: `decode-file`, `dump` (+ later watch/capture) |
 | `transport` | Strategy | Serial / TCP / `HexFileTransport` (A1) |
 | `framer` | Parser | A5 + IntelliChlor sync seek, length extract, checksum (A1) |
-| `messages` | Command | Typed message DTOs (stub → A2) |
-| `registry` | Factory | cmd-byte → parser map (stub → A2) |
-| `session` | Facade | Thin session over transport + framer |
+| `messages` | Command | `SystemStatus`, `TempStatus`, `Unknown` DTOs + `to_json` |
+| `registry` | Factory | Explicit cmd-byte → parser map (`MessageRegistry.default`) |
+| `session` | Facade | Frame + decode; quarantine bad checksum |
 
 ## A1 framing notes
 

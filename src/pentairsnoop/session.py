@@ -2,13 +2,36 @@
 
 from __future__ import annotations
 
-from pentairsnoop.framer import Frame, Framer
+from dataclasses import dataclass
+
+from pentairsnoop.framer import Frame, FrameKind, Framer
+from pentairsnoop.messages import Message, Unknown
 from pentairsnoop.registry import MessageRegistry
 from pentairsnoop.transport import Transport
 
 
+@dataclass(frozen=True)
+class QuarantinedFrame:
+    """Pattern: Facade — bad-checksum frame held aside (not applied as status)."""
+
+    frame: Frame
+    reason: str = "checksum_mismatch"
+
+    def to_dict(self) -> dict:
+        return {
+            "type_name": "Quarantined",
+            "reason": self.reason,
+            "kind": self.frame.kind.value,
+            "checksum_ok": self.frame.checksum_ok,
+            "raw": self.frame.raw.hex(),
+        }
+
+
+DecodedItem = Message | QuarantinedFrame
+
+
 class Session:
-    """Pattern: Facade — high-level read path over lab transports (A1+)."""
+    """Pattern: Facade — high-level read/decode path over lab transports."""
 
     def __init__(
         self,
@@ -18,7 +41,9 @@ class Session:
     ) -> None:
         self._transport = transport
         self._framer = framer if framer is not None else Framer()
-        self._registry = registry if registry is not None else MessageRegistry()
+        self._registry = (
+            registry if registry is not None else MessageRegistry.default()
+        )
 
     @property
     def transport(self) -> Transport:
@@ -52,3 +77,15 @@ class Session:
             return frames
         finally:
             self._transport.close()
+
+    def decode_frame(self, frame: Frame) -> DecodedItem:
+        """Decode one frame; quarantine bad checksums; IntelliChlor → Unknown."""
+        if not frame.checksum_ok:
+            return QuarantinedFrame(frame=frame)
+        if frame.kind is FrameKind.INTELLICHLOR:
+            return Unknown.parse(frame.raw)
+        return self._registry.decode_a5(frame.raw)
+
+    def read_messages(self, chunk_size: int = 256) -> list[DecodedItem]:
+        """Frame then decode; bad checksums become ``QuarantinedFrame``."""
+        return [self.decode_frame(f) for f in self.read_frames(chunk_size)]
