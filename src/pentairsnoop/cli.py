@@ -39,6 +39,12 @@ from pentairsnoop.transport import (
     SerialTransport,
     TcpTransport,
 )
+from pentairsnoop.triage import (
+    extract_frames,
+    format_summary_table,
+    summarize_session,
+    write_frames_ndjson,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -356,6 +362,49 @@ def build_parser() -> argparse.ArgumentParser:
         "--pretty",
         action="store_true",
         help="Pretty-print JSON diff",
+    )
+
+    triage = sub.add_parser(
+        "triage-capabilities",
+        help=(
+            "Summarize a hauled capability session from index.jsonl "
+            "(status + frame counts per capability). Offline only."
+        ),
+    )
+    triage.add_argument(
+        "session_dir",
+        type=Path,
+        help="Capability session directory (contains index.jsonl)",
+    )
+    triage.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON summary instead of a plain-text table",
+    )
+
+    extract = sub.add_parser(
+        "extract-capability",
+        help=(
+            "Slice root frames.ndjson by capability_id "
+            "(when by_capability dual-write is incomplete). Offline only."
+        ),
+    )
+    extract.add_argument(
+        "session_dir",
+        type=Path,
+        help="Capability session directory (contains frames.ndjson)",
+    )
+    extract.add_argument(
+        "capability_id",
+        help="Capability id to filter (exact match on frame capability_id)",
+    )
+    extract.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Write NDJSON to PATH (default: stdout)",
     )
     return parser
 
@@ -865,6 +914,53 @@ def cmd_diff_tx(crafted: str, reference: str, *, pretty: bool) -> int:
     return 0 if d.match else 2
 
 
+def cmd_triage_capabilities(session_dir: Path, *, as_json: bool) -> int:
+    """Print index.jsonl summary for a hauled capability session (A2.3)."""
+    try:
+        summary = summarize_session(session_dir)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if as_json:
+        payload = {
+            "session_dir": str(summary.session_dir),
+            "counts_by_status": summary.counts_by_status,
+            "total_frames": summary.total_frames,
+            "capabilities": [r.to_dict() for r in summary.rows],
+        }
+        print(json.dumps(payload, indent=2))
+    else:
+        print(format_summary_table(summary))
+    return 0
+
+
+def cmd_extract_capability(
+    session_dir: Path,
+    capability_id: str,
+    *,
+    out: Path | None,
+) -> int:
+    """Filter root frames.ndjson by capability_id; write NDJSON to out or stdout."""
+    try:
+        frames = extract_frames(session_dir, capability_id)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if out is not None:
+        count = write_frames_ndjson(frames, out)
+        print(
+            f"# extract-capability wrote {count} frames → {out}",
+            file=sys.stderr,
+        )
+    else:
+        count = write_frames_ndjson(frames, sys.stdout)
+        print(
+            f"# extract-capability wrote {count} frames → stdout",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse argv and run the selected command; return a process exit code."""
     parser = build_parser()
@@ -952,5 +1048,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if args.command == "diff-tx":
         return cmd_diff_tx(args.crafted, args.reference, pretty=args.pretty)
+    if args.command == "triage-capabilities":
+        return cmd_triage_capabilities(args.session_dir, as_json=args.json)
+    if args.command == "extract-capability":
+        return cmd_extract_capability(
+            args.session_dir,
+            args.capability_id,
+            out=args.out,
+        )
     # No subcommand: A0-compatible no-op (help via --help).
     return 0

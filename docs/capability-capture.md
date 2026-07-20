@@ -2,11 +2,13 @@
 
 **Status:** A2.1 CLI implemented — ``pentairsnoop capture-capabilities`` walks the
 catalog interactively (listen-only; ``d``/``s``/``q``). A2.0 froze the catalog,
-hybrid layout C, and CLI surface below.
+hybrid layout C, and CLI surface below. A2.3 adds offline triage:
+``triage-capabilities`` / ``extract-capability`` (no live bus required).
 
 **Plan:** parent `agents/plans/08-capability-capture-mode.md`  
 **Catalog code:** `pentairsnoop.catalog` (`DEFAULT_CATALOG`, 17 entries)  
 **Session code:** `pentairsnoop.capability_session` (state machine + hybrid writer)  
+**Triage code:** `pentairsnoop.triage` (index summary + frame extract by id)  
 **JSON snapshot:** `src/pentairsnoop/data/default_catalog.json`
 
 ## Catalog
@@ -167,3 +169,19 @@ tar czf ~/capability-guided-YYYYMMDD.tgz -C samples/captures YYYYMMDDTHHMMSSZ_ca
 ```
 
 See also: [capture-procedure.md](capture-procedure.md) (capability-guided ops subsection).
+
+## Offline triage (A2.3)
+
+After haul-back, list which capabilities are `done` / `skipped` / `not_run` and
+open frame slices without ad-hoc `jq`:
+
+```bash
+pentairsnoop triage-capabilities samples/captures/YYYYMMDDTHHMMSSZ_capability-guided
+pentairsnoop triage-capabilities samples/captures/YYYYMMDDTHHMMSSZ_capability-guided --json
+
+# When by_capability/<nn>_<id>/frames.ndjson is missing or empty, slice the root:
+pentairsnoop extract-capability samples/captures/YYYYMMDDTHHMMSSZ_capability-guided spa_on_off \
+  -o /tmp/spa_on_off.ndjson
+```
+
+Per-capability RE stubs (findings TBD until live corpus): [05-protocol-from-captures.md](05-protocol-from-captures.md).

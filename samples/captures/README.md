@@ -37,6 +37,20 @@ directory name and a one-line summary. Link `NOTES.md` for ACK/status outcomes.
 
 _None yet — live annotated captures pending hardware._
 
+## Capability-guided corpus (A2.2 — pending)
+
+Live `mode=capability_guided` sessions (full or `--only`-prioritized walks with
+wireless remote) are **not** checked in yet. Do **not** invent panel-success
+captures under this tree. When A2.2 lands, add the session directory here and
+index done/skipped caps in this README.
+
+Offline triage against a hauled session (A2.3 tooling):
+
+```bash
+pentairsnoop triage-capabilities samples/captures/<session_dir>
+pentairsnoop extract-capability samples/captures/<session_dir> <capability_id> -o /tmp/cap.ndjson
+```
+
 ## Related fixtures (not A4 live corpus)
 
 Parent-tree hex fixtures (`../samples/status_temps.hex`,

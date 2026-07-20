@@ -126,7 +126,7 @@ def test_session_accepts_injected_deps() -> None:
 
 
 def test_module_pattern_docstrings() -> None:
-    from pentairsnoop import capability_session
+    from pentairsnoop import capability_session, triage
 
     for mod in (
         transport,
@@ -139,6 +139,7 @@ def test_module_pattern_docstrings() -> None:
         craft,
         compare,
         capability_session,
+        triage,
     ):
         assert mod.__doc__ is not None
         assert "Pattern:" in mod.__doc__
@@ -147,6 +148,8 @@ def test_module_pattern_docstrings() -> None:
 def test_capture_capabilities_in_help() -> None:
     help_text = build_parser().format_help()
     assert "capture-capabilities" in help_text
+    assert "triage-capabilities" in help_text
+    assert "extract-capability" in help_text
 
 
 def test_samples_dir_fixture(samples_dir: Path) -> None:
