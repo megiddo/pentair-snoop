@@ -1,58 +1,30 @@
-# Capture index (`samples/captures/`)
+# Capture sessions
 
-Annotated live RS485 capture sessions for **this** controller. Layout and
-tooling are ready; **live corpus is pending hardware** (antenna↔controller tap).
+Saved bus recordings live here. Copy sessions from the machine attached to the panel into this folder (or point `-o` here when capturing on a shared checkout).
 
-Do **not** add fabricated “panel success” TX files here. Fixture format checks
-belong in unit tests (`tests/test_capture.py`) or temporary `--file` runs
-outside this index.
+## Layout
 
-## Session layout
-
-Each capture is a directory:
+Each continuous or capability-guided session is a directory:
 
 ```text
 YYYYMMDDTHHMMSSZ_<label>/
-  meta.json       # format_version, source, started_at/ended_at, counts
-  raw.ndjson      # {"t","offset","len","hex"} per transport read
-  frames.ndjson   # {"t","seq","kind","checksum_ok","raw"} per frame
-  NOTES.md        # human annotation (intent, actions, observed TX)
+  meta.json
+  raw.ndjson
+  frames.ndjson
+  NOTES.md          # what you did / what you saw
+  index.jsonl       # capability-guided sessions only
+  by_capability/    # capability-guided sessions only
 ```
-
-See [`docs/capture-procedure.md`](../../docs/capture-procedure.md) for wiring,
-safety, and CLI examples.
-
-## Planned sessions (pending live bus)
-
-| Status | Label | Intent |
-|--------|-------|--------|
-| pending | `idle-status` | Baseline status/temps, no panel changes |
-| pending | `circuit-*` | Each circuit toggle from panel/remote |
-| pending | `heat-setpoint` | Heat / setpoint change from panel |
-
-When a real session is recorded, add a row under **Recorded sessions** with the
-directory name and a one-line summary. Link `NOTES.md` for ACK/status outcomes.
 
 ## Recorded sessions
 
-_None yet — live annotated captures pending hardware._
+_None checked in yet — add a row when you haul a real session home._
 
-## Capability-guided corpus (A2.2 — pending)
+| Session folder | Notes |
+|----------------|-------|
+| _(empty)_ | |
 
-Live `mode=capability_guided` sessions (full or `--only`-prioritized walks with
-wireless remote) are **not** checked in yet. Do **not** invent panel-success
-captures under this tree. When A2.2 lands, add the session directory here and
-index done/skipped caps in this README.
+## Related
 
-Offline triage against a hauled session (A2.3 tooling):
-
-```bash
-pentairsnoop triage-capabilities samples/captures/<session_dir>
-pentairsnoop extract-capability samples/captures/<session_dir> <capability_id> -o /tmp/cap.ndjson
-```
-
-## Related fixtures (not A4 live corpus)
-
-Parent-tree hex fixtures (`../samples/status_temps.hex`,
-`../samples/log_breakdown/`, …) remain **read-path regression** samples. They
-are not substitutes for antenna↔controller write captures.
+- [Capture procedure](../../docs/capture-procedure.md)
+- [Capability-guided capture](../../docs/capability-capture.md)

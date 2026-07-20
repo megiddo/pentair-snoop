@@ -109,14 +109,13 @@ def build_parser() -> argparse.ArgumentParser:
         const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
         metavar="HOST:PORT",
         help=(
-            f"TCP to EW11 (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT} "
-            "from settings.php)"
+            f"TCP serial bridge (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT})"
         ),
     )
     src.add_argument(
         "--serial",
         metavar="PORT",
-        help="USB-RS485 serial device (9600 8N1 starting defaults, unconfirmed)",
+        help="USB-RS485 serial device (9600 8N1 lab starting defaults)",
     )
     src.add_argument(
         "--file",
@@ -166,14 +165,13 @@ def build_parser() -> argparse.ArgumentParser:
         const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
         metavar="HOST:PORT",
         help=(
-            f"TCP to EW11 (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT} "
-            "from settings.php)"
+            f"TCP serial bridge (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT})"
         ),
     )
     cap_src.add_argument(
         "--serial",
         metavar="PORT",
-        help="USB-RS485 serial device (9600 8N1 starting defaults, unconfirmed)",
+        help="USB-RS485 serial device (9600 8N1 lab starting defaults)",
     )
     cap_src.add_argument(
         "--file",
@@ -223,14 +221,13 @@ def build_parser() -> argparse.ArgumentParser:
         const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
         metavar="HOST:PORT",
         help=(
-            f"TCP to EW11 (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT} "
-            "from settings.php)"
+            f"TCP serial bridge (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT})"
         ),
     )
     cc_src.add_argument(
         "--serial",
         metavar="PORT",
-        help="USB-RS485 serial device (9600 8N1 starting defaults, unconfirmed)",
+        help="USB-RS485 serial device (9600 8N1 lab starting defaults)",
     )
     cc_src.add_argument(
         "--file",
@@ -305,7 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     craft_c.add_argument(
         "circuit",
-        help="Circuit id: 0x06 / 6 / pool_light (local PHP names; unconfirmed)",
+        help="Circuit id: 0x06 / 6 / pool_light (names are lab defaults — confirm on your panel)",
     )
     craft_c.add_argument(
         "state",
@@ -318,7 +315,7 @@ def build_parser() -> argparse.ArgumentParser:
         "craft-heat",
         help=(
             "Emit HeatChange (0x88) TX hex (dry-run by default). "
-            "Matches lib/index.php $set_temp shape when args match."
+            "Use --diff against a captured TX to validate the shape."
         ),
     )
     craft_h.add_argument("--pool-set", type=int, required=True, metavar="F", help="Pool setpoint °F")
@@ -329,7 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=lambda s: int(s, 0),
         default=None,
         metavar="BYTE",
-        help="Raw mode byte (default: PHP OR 0x05 = pool+spa heater)",
+        help="Raw mode byte (default 0x05 = pool+spa heater bits OR'd)",
     )
     mode_g.add_argument(
         "--pack-modes",
@@ -516,7 +513,7 @@ def _decode_path(
 
 
 def cmd_decode_file(path: Path, *, pretty: bool, include_quarantine: bool) -> int:
-    """NDJSON stream of decoded messages (PHP ``Command::toJson``-like)."""
+    """NDJSON stream of decoded messages."""
     if not path.is_file():
         print(f"error: file not found: {path}", file=sys.stderr)
         return 1
@@ -728,7 +725,7 @@ def _resolve_heat_mode(args: argparse.Namespace) -> int:
         return args.mode & 0xFF
     if args.pack_modes:
         return pack_heat_mode(pool_mode=args.pool_mode, spa_mode=args.spa_mode)
-    # Default: PHP OR-style dual heater (matches $set_temp mode 0x05).
+    # Default: dual heater mode bits OR'd (0x05).
     return (HEAT_POOL_MODE | HEAT_SPA_MODE) & 0xFF
 
 
