@@ -32,9 +32,15 @@ from pentairsnoop.craft import (
 )
 from pentairsnoop.messages import Message
 from pentairsnoop.session import DecodedItem, QuarantinedFrame, Session
+from pentairsnoop.settings import (
+    DEFAULT_SERIAL_DEVICE,
+    load_transport_settings,
+    resolve_cli_transport,
+)
 from pentairsnoop.transport import (
     DEFAULT_EW11_HOST,
     DEFAULT_EW11_PORT,
+    DEFAULT_SERIAL_BAUD,
     HexFileTransport,
     SerialTransport,
     TcpTransport,
@@ -47,12 +53,49 @@ from pentairsnoop.triage import (
 )
 
 
+def _add_bus_source_group(parser: argparse.ArgumentParser) -> None:
+    """Add optional ``--tcp`` / ``--serial`` / ``--file`` (``.env`` fills defaults)."""
+    src = parser.add_mutually_exclusive_group(required=False)
+    src.add_argument(
+        "--tcp",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="HOST:PORT",
+        help=(
+            "TCP serial bridge (overrides .env). "
+            f"Omit HOST:PORT to use PENTAIR_TCP_* "
+            f"(fallback {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT})"
+        ),
+    )
+    src.add_argument(
+        "--serial",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="DEVICE",
+        help=(
+            "USB-RS485 serial device (overrides .env). "
+            f"Omit DEVICE to use PENTAIR_SERIAL_DEVICE "
+            f"(fallback {DEFAULT_SERIAL_DEVICE})"
+        ),
+    )
+    src.add_argument(
+        "--file",
+        type=Path,
+        metavar="PATH",
+        help="Offline hex fixture (overrides .env; EOF ends the stream)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser with decode, watch, and capture."""
     parser = argparse.ArgumentParser(
         prog="pentairsnoop",
         description=(
-            "Lab CLI for Pentair RS485 protocol inspection, decode, and capture."
+            "Lab CLI for Pentair RS485 protocol inspection, decode, and capture. "
+            "Bus defaults come from .env (serial/tty by default); "
+            "--tcp / --serial / --file override."
         ),
     )
     parser.add_argument(
@@ -98,31 +141,10 @@ def build_parser() -> argparse.ArgumentParser:
         "watch",
         help=(
             "Live or fixture watch: persistent transport + NDJSON messages. "
-            "Defaults: EW11 TCP "
-            f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}; serial 9600 8N1 (unconfirmed)."
+            "Default source: .env (PENTAIR_TRANSPORT=serial)."
         ),
     )
-    src = watch.add_mutually_exclusive_group(required=True)
-    src.add_argument(
-        "--tcp",
-        nargs="?",
-        const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
-        metavar="HOST:PORT",
-        help=(
-            f"TCP serial bridge (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT})"
-        ),
-    )
-    src.add_argument(
-        "--serial",
-        metavar="PORT",
-        help="USB-RS485 serial device (9600 8N1 lab starting defaults)",
-    )
-    src.add_argument(
-        "--file",
-        type=Path,
-        metavar="PATH",
-        help="Offline hex fixture (EOF ends watch; no reconnect)",
-    )
+    _add_bus_source_group(watch)
     watch.add_argument(
         "--cmd",
         action="append",
@@ -155,30 +177,10 @@ def build_parser() -> argparse.ArgumentParser:
         "capture",
         help=(
             "Record timestamped raw.ndjson + frames.ndjson under a session dir. "
-            "Same transports as watch; see docs/capture-procedure.md."
+            "Default source: .env; see docs/capture-procedure.md."
         ),
     )
-    cap_src = capture.add_mutually_exclusive_group(required=True)
-    cap_src.add_argument(
-        "--tcp",
-        nargs="?",
-        const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
-        metavar="HOST:PORT",
-        help=(
-            f"TCP serial bridge (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT})"
-        ),
-    )
-    cap_src.add_argument(
-        "--serial",
-        metavar="PORT",
-        help="USB-RS485 serial device (9600 8N1 lab starting defaults)",
-    )
-    cap_src.add_argument(
-        "--file",
-        type=Path,
-        metavar="PATH",
-        help="Offline hex fixture (EOF ends capture; format tests / replay)",
-    )
+    _add_bus_source_group(capture)
     capture.add_argument(
         "--out",
         "-o",
@@ -211,30 +213,11 @@ def build_parser() -> argparse.ArgumentParser:
         "capture-capabilities",
         help=(
             "Interactive capability-guided listen capture (catalog walk; d/s/q). "
-            "Listen-only — no --send / craft. See docs/capability-capture.md."
+            "Listen-only — no --send / craft. Default source: .env. "
+            "See docs/capability-capture.md."
         ),
     )
-    cc_src = cap_caps.add_mutually_exclusive_group(required=True)
-    cc_src.add_argument(
-        "--tcp",
-        nargs="?",
-        const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
-        metavar="HOST:PORT",
-        help=(
-            f"TCP serial bridge (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT})"
-        ),
-    )
-    cc_src.add_argument(
-        "--serial",
-        metavar="PORT",
-        help="USB-RS485 serial device (9600 8N1 lab starting defaults)",
-    )
-    cc_src.add_argument(
-        "--file",
-        type=Path,
-        metavar="PATH",
-        help="Offline hex fixture (UX/format dry-run; EOF drains then waits on keys)",
-    )
+    _add_bus_source_group(cap_caps)
     cap_caps.add_argument(
         "--out",
         "-o",
@@ -445,22 +428,27 @@ def _add_craft_common(p: argparse.ArgumentParser) -> None:
         "--send",
         action="store_true",
         help=(
-            "Actually write TX bytes (OFF by default). Requires --tcp or --serial. "
-            "Listens before/after; do not use on live hardware unless safe/offline."
+            "Actually write TX bytes (OFF by default). "
+            "Uses .env by default, or --tcp / --serial to override. "
+            "Listens before/after; do not use on live hardware unless safe."
         ),
     )
     send_src = send.add_mutually_exclusive_group()
     send_src.add_argument(
         "--tcp",
         nargs="?",
-        const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
+        const="",
+        default=None,
         metavar="HOST:PORT",
-        help=f"TCP for --send (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT})",
+        help="TCP for --send (overrides .env; omit HOST:PORT for PENTAIR_TCP_*)",
     )
     send_src.add_argument(
         "--serial",
-        metavar="PORT",
-        help="Serial device for --send",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="DEVICE",
+        help="Serial for --send (overrides .env; omit DEVICE for PENTAIR_SERIAL_DEVICE)",
     )
     send.add_argument(
         "--listen-seconds",
@@ -552,16 +540,31 @@ def build_watch_transport(
     tcp: str | None,
     serial: str | None,
     file: Path | None,
+    serial_baud: int | None = None,
 ) -> HexFileTransport | TcpTransport | SerialTransport:
-    """Pattern: Strategy — select transport backend for ``watch``."""
+    """Pattern: Strategy — select transport backend for ``watch`` / capture."""
     if file is not None:
         return HexFileTransport(file)
     if tcp is not None:
         host, port = _parse_tcp_endpoint(tcp)
         return TcpTransport(host, port)
     if serial is not None:
-        return SerialTransport(serial)
-    raise ValueError("watch requires --tcp, --serial, or --file")
+        baud = serial_baud if serial_baud is not None else DEFAULT_SERIAL_BAUD
+        return SerialTransport(serial, baudrate=baud)
+    raise ValueError("watch requires --tcp, --serial, --file, or .env defaults")
+
+
+def _resolved_bus_source(
+    *,
+    tcp: str | None,
+    serial: str | None,
+    file: Path | None,
+) -> tuple[str | None, str | None, Path | None, int]:
+    """Resolve CLI flags against ``.env`` (serial/tty by default)."""
+    settings = load_transport_settings()
+    return resolve_cli_transport(
+        tcp=tcp, serial=serial, file=file, settings=settings
+    )
 
 
 def cmd_watch(
@@ -575,11 +578,14 @@ def cmd_watch(
     max_messages: int | None,
 ) -> int:
     """Persistent watch: open once, stream NDJSON until EOF/interrupt."""
+    tcp, serial, file, baud = _resolved_bus_source(tcp=tcp, serial=serial, file=file)
     if file is not None and not file.is_file():
         print(f"error: file not found: {file}", file=sys.stderr)
         return 1
     try:
-        transport = build_watch_transport(tcp=tcp, serial=serial, file=file)
+        transport = build_watch_transport(
+            tcp=tcp, serial=serial, file=file, serial_baud=baud
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -617,11 +623,14 @@ def cmd_capture(
     max_frames: int | None,
 ) -> int:
     """Record timestamped raw + framed logs (FR-S4 capture workflow)."""
+    tcp, serial, file, baud = _resolved_bus_source(tcp=tcp, serial=serial, file=file)
     if file is not None and not file.is_file():
         print(f"error: file not found: {file}", file=sys.stderr)
         return 1
     try:
-        transport = build_watch_transport(tcp=tcp, serial=serial, file=file)
+        transport = build_watch_transport(
+            tcp=tcp, serial=serial, file=file, serial_baud=baud
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -669,11 +678,14 @@ def cmd_capture_capabilities(
     input_fn=None,
 ) -> int:
     """Interactive capability-guided listen capture (A2.1). Listen-only."""
+    tcp, serial, file, baud = _resolved_bus_source(tcp=tcp, serial=serial, file=file)
     if file is not None and not file.is_file():
         print(f"error: file not found: {file}", file=sys.stderr)
         return 1
     try:
-        transport = build_watch_transport(tcp=tcp, serial=serial, file=file)
+        transport = build_watch_transport(
+            tcp=tcp, serial=serial, file=file, serial_baud=baud
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -797,11 +809,20 @@ def cmd_send_with_listen(
     listen_seconds: float,
 ) -> int:
     """Gated lab send: listen → write TX → listen. Prefer dry-run without --send."""
+    tcp, serial, file, baud = _resolved_bus_source(tcp=tcp, serial=serial, file=None)
+    if file is not None:
+        print("error: --send cannot use --file", file=sys.stderr)
+        return 1
     if tcp is None and serial is None:
-        print("error: --send requires --tcp or --serial", file=sys.stderr)
+        print(
+            "error: --send needs a bus (.env serial/tcp, or --tcp / --serial)",
+            file=sys.stderr,
+        )
         return 1
     if serial is not None:
-        transport: TcpTransport | SerialTransport = SerialTransport(serial)
+        transport: TcpTransport | SerialTransport = SerialTransport(
+            serial, baudrate=baud
+        )
     else:
         assert tcp is not None
         host, port = _parse_tcp_endpoint(tcp)

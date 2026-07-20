@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-# Lab defaults from parent ``api/app/settings.php`` / ``local_rs485.py``.
+# Built-in fallbacks when ``.env`` / CLI do not specify values.
 DEFAULT_EW11_HOST = "10.0.0.11"
 DEFAULT_EW11_PORT = 8899
 DEFAULT_SERIAL_BAUD = 9600
@@ -275,11 +275,7 @@ class TcpTransport(ReconnectingTransport):
 
 
 class SerialTransport(ReconnectingTransport):
-    """Pattern: Strategy — persistent pyserial USB-RS485 link.
-
-    Defaults: **9600 8N1** from parent ``local_rs485.py`` — starting config,
-    **unconfirmed** for all adapters until capture validation.
-    """
+    """Pattern: Strategy — persistent pyserial USB-RS485 link (9600 8N1 default)."""
 
     def __init__(
         self,

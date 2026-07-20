@@ -461,14 +461,13 @@ def test_watch_cli_missing_file() -> None:
 def test_watch_help_lists_defaults() -> None:
     help_text = build_parser().format_help()
     assert "watch" in help_text
-    assert "10.0.0.11" in help_text
-    assert "8899" in help_text
+    assert ".env" in help_text
 
 
 def test_watch_tcp_flag_default_const() -> None:
     parser = build_parser()
     args = parser.parse_args(["watch", "--tcp"])
-    assert args.tcp == f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}"
+    assert args.tcp == ""
 
 
 def test_smoke_mentions_watch() -> None:

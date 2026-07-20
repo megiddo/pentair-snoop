@@ -126,7 +126,7 @@ def test_session_accepts_injected_deps() -> None:
 
 
 def test_module_pattern_docstrings() -> None:
-    from pentairsnoop import capability_session, triage
+    from pentairsnoop import capability_session, settings, triage
 
     for mod in (
         transport,
@@ -140,6 +140,7 @@ def test_module_pattern_docstrings() -> None:
         compare,
         capability_session,
         triage,
+        settings,
     ):
         assert mod.__doc__ is not None
         assert "Pattern:" in mod.__doc__

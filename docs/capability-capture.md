@@ -5,8 +5,12 @@ Use this when you are at a machine that can see the bus (often over SSH) and you
 ## Quick start
 
 ```bash
+# Uses .env (serial/tty by default)
+pentairsnoop capture-capabilities -o samples/captures
+
+# Or override:
 pentairsnoop capture-capabilities --serial /dev/ttyUSB0 -o samples/captures
-# or: pentairsnoop capture-capabilities --tcp -o samples/captures
+# pentairsnoop capture-capabilities --tcp -o samples/captures
 ```
 
 For each capability:

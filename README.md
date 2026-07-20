@@ -18,6 +18,7 @@ cd pentairsnoop
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+cp .env.example .env   # edit the serial device if needed
 ```
 
 Check that it works:
@@ -28,20 +29,55 @@ pentairsnoop --help
 
 ## How you connect
 
-Almost every live command needs **exactly one** of these sources:
+Bus defaults come from a **`.env` file** in the current directory (or a parent). The shipped default is **serial / tty**, not the network bridge:
 
-| Connection | Typical use |
-|------------|-------------|
-| `--tcp HOST:PORT` | Elfin EW11 (or similar) serial-to-Ethernet bridge on your LAN |
-| `--serial /dev/…` | USB RS-485 adapter plugged into this machine |
-| `--file path.hex` | Offline replay of a saved hex dump (no live bus) |
+```bash
+# .env (from .env.example)
+PENTAIR_TRANSPORT=serial
+PENTAIR_SERIAL_DEVICE=/dev/ttyUSB0
+PENTAIR_SERIAL_BAUD=9600
+```
 
-**Lab starting defaults** (confirm on your hardware):
+After that, you can run live commands with no source flags:
 
-| Setting | Default |
-|---------|---------|
-| TCP | `10.0.0.11:8899` (omit the host after `--tcp` to use this) |
-| Serial | **9600 8N1** |
+```bash
+pentairsnoop watch
+pentairsnoop capture -o samples/captures --label idle
+pentairsnoop capture-capabilities -o samples/captures
+```
+
+**Command-line flags always override `.env`:**
+
+| Flag | Effect |
+|------|--------|
+| `--serial` / `--serial /dev/…` | Force serial (device from flag, or from `.env` if omitted) |
+| `--tcp` / `--tcp HOST:PORT` | Force TCP bridge (host/port from flag, or from `.env` `PENTAIR_TCP_*` if omitted) |
+| `--file path.hex` | Offline hex replay (ignores `.env` bus settings) |
+
+Examples:
+
+```bash
+# Use .env serial default
+pentairsnoop watch
+
+# Override: different USB device for this run only
+pentairsnoop watch --serial /dev/ttyPentair
+
+# Override: EW11 / TCP bridge for this run only
+pentairsnoop watch --tcp
+pentairsnoop watch --tcp 192.168.1.50:8899
+
+# Offline fixture (no live bus)
+pentairsnoop watch --file ../samples/status_temps.hex
+```
+
+| `.env` key | Meaning | Example |
+|------------|---------|---------|
+| `PENTAIR_TRANSPORT` | `serial` (default) or `tcp` | `serial` |
+| `PENTAIR_SERIAL_DEVICE` | TTY path when using serial | `/dev/ttyUSB0` |
+| `PENTAIR_SERIAL_BAUD` | Baud rate (default 9600) | `9600` |
+| `PENTAIR_TCP_HOST` | Host when using TCP | `10.0.0.11` |
+| `PENTAIR_TCP_PORT` | Port when using TCP | `8899` |
 
 **Tip:** Only one program should open the same TCP port or serial device at a time. If another service already owns the link, `watch` / `capture` will fight it.
 
@@ -113,12 +149,19 @@ pentairsnoop watch --serial /dev/ttyUSB0 --cmd 0x02 --cmd 0x08 --pretty
 
 What this does: listens on a USB RS-485 adapter and only prints status (`0x02`) and temperature-info (`0x08`) messages, formatted for reading.
 
+With a configured `.env`, the same idea without flags:
+
+```bash
+pentairsnoop watch --cmd 0x02 --cmd 0x08 --pretty
+```
+
 #### Parameters
 
 | Parameter | What it does | Example |
 |-----------|--------------|---------|
-| `--tcp [HOST:PORT]` | Live TCP bridge (default host/port if omitted) | `--tcp` or `--tcp 192.168.1.50:8899` |
-| `--serial PORT` | Live serial device | `--serial /dev/ttyUSB0` |
+| _(none)_ | Use `.env` (default: serial tty) | `pentairsnoop watch` |
+| `--tcp [HOST:PORT]` | Override to TCP bridge | `--tcp` or `--tcp 192.168.1.50:8899` |
+| `--serial [DEVICE]` | Override to serial | `--serial` or `--serial /dev/ttyUSB0` |
 | `--file PATH` | Replay a hex file until EOF | `--file ../samples/status_temps.hex` |
 | `--cmd BYTE` | Only show this command byte (repeatable; comma lists OK) | `--cmd 0x02 --cmd 0x08` or `--cmd 0x02,0x08` |
 | `--pretty` | Indent each JSON object | `--pretty` |
@@ -132,6 +175,10 @@ What this does: listens on a USB RS-485 adapter and only prints status (`0x02`) 
 Same connection options as `watch`, but writes a **session folder** with timestamped raw bytes and framed messages for later study.
 
 ```bash
+# Uses .env serial by default
+pentairsnoop capture -o samples/captures --label idle-status
+
+# Or override the device for this run
 pentairsnoop capture --serial /dev/ttyUSB0 -o samples/captures --label idle-status
 ```
 
@@ -143,8 +190,8 @@ See also: [Capture procedure](docs/capture-procedure.md).
 
 | Parameter | What it does | Example |
 |-----------|--------------|---------|
-| `--tcp [HOST:PORT]` | Live TCP bridge | `--tcp` |
-| `--serial PORT` | Live serial device | `--serial /dev/ttyUSB0` |
+| `--tcp [HOST:PORT]` | Override to TCP (else `.env`) | `--tcp` |
+| `--serial [DEVICE]` | Override to serial (else `.env`) | `--serial /dev/ttyUSB0` |
 | `--file PATH` | Offline hex (format / tool testing) | `--file ../samples/status_temps.hex` |
 | `-o` / `--out DIR` | Parent folder for new sessions (default `samples/captures`) | `-o /tmp/captures` |
 | `--label TEXT` | Suffix in the auto session folder name | `--label circuit-filter` |
@@ -168,6 +215,7 @@ Keys while prompted:
 | `q` | **Quit** — end the session early |
 
 ```bash
+# .env default, or:
 pentairsnoop capture-capabilities --tcp -o samples/captures
 ```
 
@@ -189,7 +237,7 @@ See also: [Capability-guided capture](docs/capability-capture.md).
 
 | Parameter | What it does | Example |
 |-----------|--------------|---------|
-| `--tcp` / `--serial` / `--file` | Same sources as `watch` | `--serial /dev/ttyUSB0` |
+| `--tcp` / `--serial` / `--file` | Override `.env` source (same as `watch`) | `--serial /dev/ttyUSB0` |
 | `-o` / `--out DIR` | Parent folder for the session | `-o samples/captures` |
 | `--label TEXT` | Session name suffix (default `capability-guided`) | `--label panel-night1` |
 | `--session-dir DIR` | Exact output folder | `--session-dir /tmp/caps1` |
@@ -268,8 +316,8 @@ Circuit names include: `spa`, `pool`, `cleaner`, `water_feature`, `spa_light`, `
 | `--src BYTE` | Source address | `--src 0x20` |
 | `--diff REF_HEX` | Also compare against a captured/reference hex string | `--diff ff00ffa5…` |
 | `--json` | Print structured JSON instead of bare hex | `--json` |
-| `--send` | Actually transmit (requires `--tcp` or `--serial`) | see below |
-| `--tcp` / `--serial` | Link to use only with `--send` | `--send --tcp` |
+| `--send` | Actually transmit (uses `.env`, or `--tcp` / `--serial`) | see below |
+| `--tcp` / `--serial` | Override `.env` for `--send` | `--send --tcp` |
 | `--listen-seconds SEC` | How long to listen before/after a send (default `2.0`) | `--listen-seconds 3` |
 
 ```bash
@@ -342,7 +390,7 @@ pentairsnoop dump ../samples/status_temps.hex | less
 ### 2. Live monitor while someone uses the remote
 
 ```bash
-pentairsnoop watch --serial /dev/ttyUSB0 --pretty
+pentairsnoop watch --pretty
 ```
 
 ### 3. Structured capture for reverse engineering
@@ -350,7 +398,7 @@ pentairsnoop watch --serial /dev/ttyUSB0 --pretty
 On the machine attached to the bus:
 
 ```bash
-pentairsnoop capture-capabilities --serial /dev/ttyUSB0 -o samples/captures
+pentairsnoop capture-capabilities -o samples/captures
 ```
 
 Follow the prompts with the wireless remote (`d` / `s` / `q`). Then copy the session directory home and run:

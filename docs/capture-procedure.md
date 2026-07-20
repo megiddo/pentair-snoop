@@ -24,10 +24,11 @@ Typical EasyTouch-style buses are half-duplex RS-485. This tool’s serial start
 ## Continuous capture
 
 ```bash
-# USB RS-485 on this machine
+# USB RS-485 — uses .env by default, or pass --serial
+pentairsnoop capture -o samples/captures --label idle-status
 pentairsnoop capture --serial /dev/ttyUSB0 -o samples/captures --label idle-status
 
-# Network serial bridge (EW11-style)
+# Network serial bridge (overrides .env for this run)
 pentairsnoop capture --tcp -o samples/captures --label circuit-filter
 ```
 
