@@ -9,6 +9,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from pentairsnoop import __version__
+from pentairsnoop.capture import (
+    CaptureWriter,
+    default_session_dirname,
+    describe_source,
+    iter_capture_frames,
+)
 from pentairsnoop.messages import Message
 from pentairsnoop.session import DecodedItem, QuarantinedFrame, Session
 from pentairsnoop.transport import (
@@ -21,7 +27,7 @@ from pentairsnoop.transport import (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the top-level argument parser with decode + watch subcommands."""
+    """Build the top-level argument parser with decode, watch, and capture."""
     parser = argparse.ArgumentParser(
         prog="pentairsnoop",
         description=(
@@ -123,6 +129,63 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="N",
         help="Stop after N emitted messages (tests / bounded soak)",
+    )
+
+    capture = sub.add_parser(
+        "capture",
+        help=(
+            "Record timestamped raw.ndjson + frames.ndjson under a session dir. "
+            "Same transports as watch; see docs/capture-procedure.md."
+        ),
+    )
+    cap_src = capture.add_mutually_exclusive_group(required=True)
+    cap_src.add_argument(
+        "--tcp",
+        nargs="?",
+        const=f"{DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT}",
+        metavar="HOST:PORT",
+        help=(
+            f"TCP to EW11 (default {DEFAULT_EW11_HOST}:{DEFAULT_EW11_PORT} "
+            "from settings.php)"
+        ),
+    )
+    cap_src.add_argument(
+        "--serial",
+        metavar="PORT",
+        help="USB-RS485 serial device (9600 8N1 starting defaults, unconfirmed)",
+    )
+    cap_src.add_argument(
+        "--file",
+        type=Path,
+        metavar="PATH",
+        help="Offline hex fixture (EOF ends capture; format tests / replay)",
+    )
+    capture.add_argument(
+        "--out",
+        "-o",
+        type=Path,
+        default=Path("samples/captures"),
+        metavar="DIR",
+        help="Parent directory for session folders (default: samples/captures)",
+    )
+    capture.add_argument(
+        "--label",
+        default="session",
+        help="Session label suffix (idle, circuit-filter, heat-setpoint, …)",
+    )
+    capture.add_argument(
+        "--session-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Explicit session directory (skips auto YYYYMMDDTHHMMSSZ_label)",
+    )
+    capture.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Stop after N framed messages (tests / bounded capture)",
     )
     return parser
 
@@ -262,6 +325,53 @@ def cmd_watch(
     return 0
 
 
+def cmd_capture(
+    *,
+    tcp: str | None,
+    serial: str | None,
+    file: Path | None,
+    out: Path,
+    label: str,
+    session_dir: Path | None,
+    max_frames: int | None,
+) -> int:
+    """Record timestamped raw + framed logs (FR-S4 capture workflow)."""
+    if file is not None and not file.is_file():
+        print(f"error: file not found: {file}", file=sys.stderr)
+        return 1
+    try:
+        transport = build_watch_transport(tcp=tcp, serial=serial, file=file)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if session_dir is not None:
+        dest = session_dir
+    else:
+        dest = out / default_session_dirname(label)
+
+    source = describe_source(tcp=tcp, serial=serial, file=file)
+    writer = CaptureWriter(dest, label=label, source=source)
+    writer.open()
+    framed = 0
+    try:
+        for frame in iter_capture_frames(transport, writer):
+            writer.write_frame(frame)
+            framed += 1
+            if max_frames is not None and framed >= max_frames:
+                break
+    except KeyboardInterrupt:
+        print("\n# capture interrupted", file=sys.stderr)
+    finally:
+        writer.close()
+
+    print(
+        f"# capture wrote {framed} frames → {writer.session_dir}",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse argv and run the selected command; return a process exit code."""
     parser = build_parser()
@@ -287,6 +397,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             pretty=args.pretty,
             include_quarantine=args.include_quarantine,
             max_messages=args.max_messages,
+        )
+    if args.command == "capture":
+        return cmd_capture(
+            tcp=args.tcp,
+            serial=args.serial,
+            file=args.file,
+            out=args.out,
+            label=args.label,
+            session_dir=args.session_dir,
+            max_frames=args.max_frames,
         )
     # No subcommand: A0-compatible no-op (help via --help).
     return 0

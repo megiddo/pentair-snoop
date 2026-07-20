@@ -88,7 +88,27 @@ pentairsnoop watch --file ../samples/status_temps.hex --cmd 0x02,0x08 --pretty
 
 Do not run live `--tcp` against EW11 while PHP or `pentairservice` also holds port 8899.
 
-Later milestones: `capture`, write craft.
+### Capture (A4)
+
+Timestamped **raw** + **framed** NDJSON logs for human annotation (FR-S4). Procedure:
+[`docs/capture-procedure.md`](docs/capture-procedure.md). Session index:
+[`samples/captures/README.md`](samples/captures/README.md) (live corpus pending
+hardware — do not invent panel-success captures).
+
+```bash
+# Live serial or TCP (listen-only for baseline / panel sessions)
+pentairsnoop capture --serial /dev/ttyUSB0 -o samples/captures --label idle-status
+pentairsnoop capture --tcp -o samples/captures --label circuit-filter
+
+# Format check from a fixture (not a claim of panel TX success)
+pentairsnoop capture --file ../samples/status_temps.hex \
+  -o /tmp/captures --label format-check --max-frames 5
+```
+
+Each session directory contains `meta.json`, `raw.ndjson`, `frames.ndjson`, and
+`NOTES.md`.
+
+Later milestone: write craft (A5).
 
 ## Tests and coverage
 
@@ -118,12 +138,13 @@ Aligned with [03-software-design.md](../agents/plans/03-software-design.md):
 
 | Module | Pattern | Role |
 |--------|---------|------|
-| `cli` | Command | CLI: `decode-file`, `dump`, `watch` (+ later capture) |
+| `cli` | Command | CLI: `decode-file`, `dump`, `watch`, `capture` |
 | `transport` | Strategy | `HexFileTransport`, `TcpTransport`, `SerialTransport` (+ reconnect) |
 | `framer` | Parser | A5 + IntelliChlor sync seek, length extract, checksum (A1) |
 | `messages` | Command | `SystemStatus`, `TempStatus`, `Unknown` DTOs + `to_json` |
 | `registry` | Factory | Explicit cmd-byte → parser map (`MessageRegistry.default`) |
-| `session` | Facade | Frame + decode; quarantine; persistent `iter_messages` watch |
+| `session` | Facade | Frame + decode; quarantine; persistent `iter_messages` / `iter_frames` |
+| `capture` | Writer + Decorator | Timestamped `raw.ndjson` / `frames.ndjson`; `RecordingTransport` tee |
 
 ## A1 framing notes
 

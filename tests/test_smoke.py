@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import pentairsnoop
-from pentairsnoop import framer, messages, registry, session, transport
+from pentairsnoop import capture, framer, messages, registry, session, transport
 from pentairsnoop.cli import build_parser, main
 from pentairsnoop.framer import Framer
 from pentairsnoop.messages import Message
@@ -42,6 +42,7 @@ def test_build_parser_prog() -> None:
     assert "decode-file" in help_text
     assert "dump" in help_text
     assert "watch" in help_text
+    assert "capture" in help_text
 
 
 def test_framer_feed_incomplete_returns_empty() -> None:
@@ -112,7 +113,7 @@ def test_session_accepts_injected_deps() -> None:
 
 
 def test_module_pattern_docstrings() -> None:
-    for mod in (transport, framer, messages, registry, session):
+    for mod in (transport, framer, messages, registry, session, capture):
         assert mod.__doc__ is not None
         assert "Pattern:" in mod.__doc__
 
