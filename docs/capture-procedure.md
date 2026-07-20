@@ -1,6 +1,6 @@
 # Capture procedure
 
-How to record continuous RS-485 traffic while equipment is running normally.
+How to record continuous RS485 (RS-485) traffic while equipment is running normally.
 
 ## Goal
 
